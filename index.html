@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Offline Game Guesser</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <h1>OFFLINE GAME GUESSER</h1>
+      <span class="brand-badge">CLUE MODE</span>
+    </div>
+  </header>
+
+  <div class="status-row">
+    <div class="lives-block">
+      <div class="lives" id="livesRow"></div>
+      <span id="statusLine">Loading...</span>
+    </div>
+    <div class="next-reset">Next daily in <strong id="nextReset">--:--:--</strong></div>
+  </div>
+
+  <div class="search-row" id="searchRow">
+    <button class="clue-btn" id="clueBtn" type="button" disabled>
+      <span class="clue-icon" aria-hidden="true">&#x1F4A1;</span>
+      <span id="clueLabel">Clue in 5 attempts</span>
+    </button>
+    <div class="search-input-wrap">
+      <input type="text" id="searchInput" placeholder="Type a game name...">
+      <div id="suggestions"></div>
+    </div>
+    <button id="guessBtn" type="button">GUESS!</button>
+  </div>
+
+  <div class="clue-reveal" id="clueReveal" hidden></div>
+
+  <div class="banner" id="banner"></div>
+
+  <div class="utility-panel">
+    <div class="utility-tabs">
+      <button type="button" id="helpToggle" class="utility-tab" aria-expanded="false" aria-controls="helpPanel">
+        <span class="tab-icon" aria-hidden="true">&#x2753;</span>
+        <span>How to play</span>
+        <span class="chevron" aria-hidden="true">&#x25BE;</span>
+      </button>
+      <button type="button" id="displayToggle" class="utility-tab" aria-expanded="false" aria-controls="displayPanel">
+        <span class="tab-icon" aria-hidden="true">&#x1F39B;&#xFE0F;</span>
+        <span>Display options</span>
+        <span class="chevron" aria-hidden="true">&#x25BE;</span>
+      </button>
+    </div>
+
+    <div id="helpPanel" class="utility-content" hidden>
+      <p class="help-intro">Each guess compares that game to today's target, category by category.</p>
+      <div class="help-colors">
+        <div class="help-color-card">
+          <span class="help-swatch help-swatch-red">&times;</span>
+          <div><strong>Red</strong><p>No match</p></div>
+        </div>
+        <div class="help-color-card">
+          <span class="help-swatch help-swatch-yellow">&asymp;</span>
+          <div><strong>Yellow</strong><p>Partial match</p></div>
+        </div>
+        <div class="help-color-card">
+          <span class="help-swatch help-swatch-green">&check;</span>
+          <div><strong>Green</strong><p>Full match</p></div>
+        </div>
+      </div>
+      <div class="help-year">
+        <h4>Release year &amp; ESRB</h4>
+        <div class="help-year-rules">
+          <div><span class="year-arrow">&#9650;</span><div><strong>Guess is earlier</strong><span>Target is more recent - go newer.</span></div></div>
+          <div><span class="year-arrow">&#9660;</span><div><strong>Guess is later</strong><span>Target is older - go older.</span></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="displayPanel" class="utility-content" hidden>
+      <div class="display-switches">
+        <label class="display-switch">
+          <span class="switch-icon" aria-hidden="true">&#x2261;</span>
+          <span class="switch-name">Summary</span>
+          <input type="checkbox" id="switchSummary">
+          <span class="switch-track" aria-hidden="true"></span>
+        </label>
+        <label class="display-switch">
+          <span class="switch-icon" aria-hidden="true">&#x1F9F3;</span>
+          <span class="switch-name">Adventure</span>
+          <input type="checkbox" id="switchAdventure">
+          <span class="switch-track" aria-hidden="true"></span>
+        </label>
+        <label class="display-switch">
+          <span class="switch-icon" aria-hidden="true">&#x2694;&#xFE0F;</span>
+          <span class="switch-name">Action</span>
+          <input type="checkbox" id="switchAction">
+          <span class="switch-track" aria-hidden="true"></span>
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <div class="table-scroll">
+    <table class="guesses" id="guessTable">
+      <colgroup>
+        <col class="col-name">
+        <col class="col-platforms">
+        <col class="col-genres">
+        <col class="col-themes">
+        <col class="col-year">
+        <col class="col-esrb">
+        <col class="col-mode">
+        <col class="col-perspective">
+        <col class="col-engine">
+        <col class="col-devpub">
+        <col class="col-saga">
+      </colgroup>
+      <thead>
+        <tr>
+          <th class="name-col">Name</th>
+          <th><span class="th-icon">&#x1F3AE;</span>Platforms</th>
+          <th><span class="th-icon">&#x1F3F7;</span>Genres</th>
+          <th><span class="th-icon">&#x1F3AD;</span>Themes</th>
+          <th><span class="th-icon">&#x1F4C5;</span>Year</th>
+          <th><span class="th-icon">&#x1F51E;</span>ESRB</th>
+          <th><span class="th-icon">&#x1F465;</span>Mode</th>
+          <th><span class="th-icon">&#x1F441;</span>Perspective</th>
+          <th><span class="th-icon">&#x2699;</span>Engine</th>
+          <th><span class="th-icon">&#x1F3E2;</span>Dev / Publisher</th>
+          <th><span class="th-icon">&#x1F517;</span>Saga / Franchise</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+</div>
+
+<canvas id="confettiCanvas" class="confetti-canvas" hidden></canvas>
+<div class="win-celebration" id="winCelebration" hidden>
+  <div class="win-celebration-title">YOU WIN!</div>
+  <div class="win-celebration-game" id="winCelebrationGame"></div>
+</div>
+
+<script src="games.gz.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
