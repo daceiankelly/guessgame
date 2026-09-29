@@ -34,7 +34,9 @@
 body {
   margin: 0;
   padding: 28px 12px 60px;
-  background: var(--bg);
+  background: url("background.webp") no-repeat 50% fixed;
+  background-size: cover;
+  background-color: var(--bg);
   color: var(--text);
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
 }
@@ -472,16 +474,6 @@ tr.summary-row td.name-cell {
   color: #fff;
 }
 
-/* Spotlight: pulse-highlight a specific icon item when its Display
-   options switch is on, e.g. "Action" in Themes or "Adventure" in Genres. */
-@keyframes spotlight-pulse {
-  0%, 100% { box-shadow: 0 0 0 2px var(--accent), 0 0 6px 1px var(--accent); }
-  50% { box-shadow: 0 0 0 3px var(--accent), 0 0 14px 4px var(--accent); }
-}
-body.spotlight-action .icon-item[data-value="Action"] .icon-glyph,
-body.spotlight-adventure .icon-item[data-value="Adventure"] .icon-glyph {
-  animation: spotlight-pulse 1.4s ease-in-out infinite;
-}
 
 .table-scroll {
   overflow-x: auto;
@@ -501,17 +493,17 @@ table.guesses {
 }
 
 /* Column widths sized to fit the viewport with no horizontal scroll. */
-table.guesses col.col-name { width: 13%; }
+table.guesses col.col-name { width: 12%; }
 table.guesses col.col-platforms { width: 9%; }
 table.guesses col.col-genres { width: 8%; }
 table.guesses col.col-themes { width: 8%; }
-table.guesses col.col-year { width: 6.5%; }
+table.guesses col.col-year { width: 9%; }
 table.guesses col.col-esrb { width: 6.5%; }
 table.guesses col.col-mode { width: 8%; }
 table.guesses col.col-perspective { width: 8%; }
 table.guesses col.col-engine { width: 8%; }
-table.guesses col.col-devpub { width: 12%; }
-table.guesses col.col-saga { width: 13%; }
+table.guesses col.col-devpub { width: 11.25%; }
+table.guesses col.col-saga { width: 12.25%; }
 
 table.guesses th {
   font-size: 0.64rem;

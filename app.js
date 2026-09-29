@@ -65,8 +65,6 @@ const MODE_ICONS = {
 
 const PLATFORM_RULES = [
   [/nintendo switch/i, "\u{1F3AE}", "Switch"],
-  [/playstation|\bps\d\b|\bvita\b|\bpsp\b/i, "\u{1F3AE}", "PlayStation"],
-  [/xbox/i, "\u{1F3AE}", "Xbox"],
   [/\bwii\b/i, "\u{1F3AE}", "Wii"],
   [/nintendo|famicom|game boy|gamecube|virtual boy|satellaview|super nes|\bnes\b|\bsnes\b/i, "\u{1F3AE}", "Nintendo"],
   [/windows|\bdos\b|microsoft/i, "\u{1F5A5}\u{FE0F}", "PC"],
@@ -82,7 +80,34 @@ const PLATFORM_RULES = [
   [/web browser/i, "\u{1F310}", "Browser"],
 ];
 
+// PlayStation/Xbox get their own generation-specific label instead of a
+// single generic bucket - "PS4" vs "PS5" is a genuinely useful clue for
+// narrowing down release year, whereas a flat "PlayStation" isn't.
+function playstationLabel(name) {
+  if (/vr2/i.test(name)) return "PS VR2";
+  if (/\bvr\b/i.test(name)) return "PS VR";
+  if (/vita/i.test(name)) return "PS Vita";
+  if (/portable|\bpsp\b/i.test(name)) return "PSP";
+  const m = name.match(/playstation\s*(\d)/i);
+  if (m) return "PS" + m[1];
+  return "PS1";
+}
+
+function xboxLabel(name) {
+  if (/series/i.test(name)) return "Xbox Series";
+  const m = name.match(/xbox\s*(\d+)/i);
+  if (m) return "Xbox " + m[1];
+  if (/\bone\b/i.test(name)) return "Xbox One";
+  return "Xbox";
+}
+
 function getPlatformIcon(name) {
+  if (/playstation|\bps\d\b|\bvita\b|\bpsp\b/i.test(name)) {
+    return { glyph: "\u{1F3AE}", label: playstationLabel(name) };
+  }
+  if (/xbox/i.test(name)) {
+    return { glyph: "\u{1F3AE}", label: xboxLabel(name) };
+  }
   for (const [re, glyph, label] of PLATFORM_RULES) {
     if (re.test(name)) return { glyph, label };
   }
@@ -99,6 +124,37 @@ let ALL_GAMES = [];
 let target = null;
 let guesses = [];
 let over = false;
+
+// "Action" (a theme) and "Adventure" (a genre) are so common across the
+// whole catalog that they crowd out more specific, useful clues. When the
+// matching switches are off, strip them out of both the guess and target
+// lists before comparing - not just visually, but from the actual clue
+// logic itself, so a more distinctive tag gets a chance to show instead.
+function themesFor(g) {
+  return els.switchAction.checked ? g.themes : g.themes.filter((t) => t !== "Action");
+}
+function genresFor(g) {
+  return els.switchAdventure.checked ? g.genres : g.genres.filter((x) => x !== "Adventure");
+}
+
+// The daily target is only ever picked from well-known, reasonably recent
+// games - a small popularity-ranked slice of the full (guessable) catalog.
+const MIN_TARGET_YEAR = 1991;
+const TARGET_POOL_SIZE = 2000;
+let targetPoolCache = null;
+
+function popularityScore(g) {
+  return (g.ratingCount || 0) + (g.criticRatingCount || 0) * 10;
+}
+
+function getTargetPool() {
+  if (targetPoolCache) return targetPoolCache;
+  const eligible = ALL_GAMES.filter((g) => g.year != null && g.year >= MIN_TARGET_YEAR);
+  const pool = eligible.length ? eligible : ALL_GAMES;
+  const sorted = [...pool].sort((a, b) => popularityScore(b) - popularityScore(a));
+  targetPoolCache = sorted.slice(0, Math.min(TARGET_POOL_SIZE, sorted.length));
+  return targetPoolCache;
+}
 
 const CLUE_UNLOCK_ATTEMPTS = 5;
 let clueUsed = false;
@@ -211,14 +267,27 @@ async function init() {
   });
 }
 
+// A plain char-code rolling hash on a date string like "2026-9-28" barely
+// changes between consecutive days (most characters are identical, only
+// the last digit or two differ), so the resulting index only shifted by a
+// tiny, predictable amount day to day - and since the game list is sorted
+// alphabetically, that meant near-identical picks (e.g. two days in a row
+// both landing on titles starting with "Chr..."). Hashing an integer day
+// count through a proper avalanche mixer (Murmur3's finalizer) instead
+// means adjacent days produce wildly different, decorrelated results
+// regardless of how the array happens to be ordered.
+function mix32(x) {
+  x = x >>> 0;
+  x = Math.imul(x ^ (x >>> 16), 0x45d9f3b);
+  x = Math.imul(x ^ (x >>> 16), 0x45d9f3b);
+  x = (x ^ (x >>> 16)) >>> 0;
+  return x;
+}
+
 function dailySeedIndex(n) {
   const d = new Date();
-  const key = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
-  let hash = 0;
-  for (let i = 0; i < key.length; i++) {
-    hash = (hash * 31 + key.charCodeAt(i)) >>> 0;
-  }
-  return hash % n;
+  const daysSinceEpoch = Math.floor(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86400000);
+  return mix32(daysSinceEpoch) % n;
 }
 
 function todayKey() {
@@ -249,7 +318,8 @@ function restoreOrStartDaily() {
 }
 
 function startDaily() {
-  target = ALL_GAMES[dailySeedIndex(ALL_GAMES.length)];
+  const pool = getTargetPool();
+  target = pool[dailySeedIndex(pool.length)];
   guesses = [];
   over = false;
   clueUsed = false;
@@ -387,6 +457,41 @@ function compareYear(guessYear, targetYear) {
   return { state, text: String(guessYear), arrow };
 }
 
+function computeYearRangeSummary() {
+  let lower = null; // target.year is strictly greater than this
+  let upper = null; // target.year is strictly less than this
+  let exact = null;
+
+  for (const g of guesses) {
+    if (g.year == null) continue;
+    if (g.year === target.year) {
+      exact = g.year;
+      break;
+    }
+    if (g.year < target.year) {
+      lower = lower == null ? g.year : Math.max(lower, g.year);
+    } else {
+      upper = upper == null ? g.year : Math.min(upper, g.year);
+    }
+  }
+
+  if (exact != null) {
+    return { state: "green", text: String(exact), arrow: null };
+  }
+  if (lower != null && upper != null) {
+    return { state: "yellow", text: `${lower}-${upper}`, arrow: null };
+  }
+  // The target pool never goes earlier than MIN_TARGET_YEAR, so that's a
+  // safe floor to pair with an upper bound even with no lower guess yet.
+  if (upper != null) {
+    return { state: "yellow", text: `${MIN_TARGET_YEAR}-${upper}`, arrow: null };
+  }
+  if (lower != null) {
+    return { state: "yellow", text: `> ${lower}`, arrow: null };
+  }
+  return { state: "na", text: "?", arrow: null };
+}
+
 function compareEsrb(guessRank, targetRank, guessLabel) {
   if (guessRank == null || targetRank == null) {
     return { state: "na", text: guessLabel || "?", arrow: null };
@@ -406,15 +511,50 @@ function compareSaga(guessG, targetG) {
     !!guessG.franchise && guessG.franchise === targetG.franchise;
 
   if (!guessG.saga && !guessG.franchise) {
-    return { state: "na", text: "—" };
+    return { state: "red", text: "Wrong Franchise & Saga" };
   }
   if (sagaMatch && franchiseMatch) {
     return { state: "green", text: guessG.saga || guessG.franchise };
   }
   if (sagaMatch || franchiseMatch) {
-    return { state: "yellow", text: sagaMatch ? guessG.saga : guessG.franchise };
+    return {
+      state: "yellow",
+      text: sagaMatch ? "Correct Saga, Wrong Franchise" : "Correct Franchise, Wrong Saga",
+    };
   }
-  return { state: "red", text: guessG.saga || guessG.franchise || "—" };
+  return { state: "red", text: guessG.saga || guessG.franchise || "Wrong Franchise & Saga" };
+}
+
+function compareDevPub(guessG, targetG) {
+  const guessDevs = guessG.developers;
+  const guessPubs = guessG.publishers;
+
+  if (guessDevs.length === 0 && guessPubs.length === 0) {
+    return { state: "red", text: "Wrong Developer & Publisher" };
+  }
+
+  const devMatch = guessDevs.some((d) => targetG.developers.includes(d));
+  const pubMatch = guessPubs.some((p) => targetG.publishers.includes(p));
+
+  if (devMatch && pubMatch) {
+    const names = Array.from(
+      new Set([
+        ...guessDevs.filter((d) => targetG.developers.includes(d)),
+        ...guessPubs.filter((p) => targetG.publishers.includes(p)),
+      ])
+    );
+    return { state: "green", text: names.join(", ") };
+  }
+  if (devMatch || pubMatch) {
+    return {
+      state: "yellow",
+      text: devMatch ? "Correct Developer, Wrong Publisher" : "Correct Publisher, Wrong Developer",
+    };
+  }
+  return {
+    state: "red",
+    text: [...guessDevs, ...guessPubs].join(", ") || "Wrong Developer & Publisher",
+  };
 }
 
 function categoryStateForGuess(key, g) {
@@ -422,9 +562,9 @@ function categoryStateForGuess(key, g) {
     case "platforms":
       return compareList(g.platforms, target.platforms).state;
     case "genres":
-      return compareList(g.genres, target.genres).state;
+      return compareList(genresFor(g), genresFor(target)).state;
     case "themes":
-      return compareList(g.themes, target.themes).state;
+      return compareList(themesFor(g), themesFor(target)).state;
     case "modes":
       return compareList(g.modes, target.modes).state;
     case "perspectives":
@@ -432,10 +572,7 @@ function categoryStateForGuess(key, g) {
     case "engines":
       return compareList(g.engines, target.engines).state;
     case "devpub":
-      return compareList(
-        [...g.developers, ...g.publishers],
-        [...target.developers, ...target.publishers]
-      ).state;
+      return compareDevPub(g, target).state;
     case "year":
       return compareYear(g.year, target.year).state;
     case "esrb":
@@ -455,10 +592,14 @@ function formatCategoryValue(key) {
   switch (key) {
     case "platforms":
       return target.platforms.length ? target.platforms.join(", ") : "No data";
-    case "genres":
-      return target.genres.length ? target.genres.join(", ") : "No data";
-    case "themes":
-      return target.themes.length ? target.themes.join(", ") : "No data";
+    case "genres": {
+      const g = genresFor(target);
+      return g.length ? g.join(", ") : "No data";
+    }
+    case "themes": {
+      const t = themesFor(target);
+      return t.length ? t.join(", ") : "No data";
+    }
     case "modes":
       return target.modes.length ? target.modes.join(", ") : "No data";
     case "perspectives":
@@ -588,12 +729,13 @@ function restoreDisplaySwitches() {
   } catch (e) {
     saved = null;
   }
+  // Default all three on (matches the HTML's checked attributes) unless
+  // the player has explicitly changed them before.
   if (saved) {
     els.switchSummary.checked = !!saved.summary;
     els.switchAdventure.checked = !!saved.adventure;
     els.switchAction.checked = !!saved.action;
   }
-  applyDisplaySwitches();
 }
 
 function onDisplaySwitchChange() {
@@ -605,13 +747,7 @@ function onDisplaySwitchChange() {
       action: els.switchAction.checked,
     })
   );
-  applyDisplaySwitches();
   render();
-}
-
-function applyDisplaySwitches() {
-  document.body.classList.toggle("spotlight-adventure", els.switchAdventure.checked);
-  document.body.classList.toggle("spotlight-action", els.switchAction.checked);
 }
 
 function buildSummaryRow() {
@@ -642,22 +778,30 @@ function buildSummaryRow() {
     }
     const state = sawGreen ? "green" : sawYellow ? "yellow" : sawAnyGuess ? "red" : "na";
     const confirmed = Array.from(hits);
-    const hasMore = state !== "green" && confirmed.length < targetList.length;
+    // "+ more possible" only makes sense once something is confirmed but
+    // not everything yet (yellow) - red means nothing matches at all, so
+    // there's no partial info to hint at.
+    const hasMore = state === "yellow" && confirmed.length < targetList.length;
     return kind === "icon"
       ? { state, items: confirmed.map((name) => ({ name, hit: true })), hasMore }
-      : { state, text: confirmed.length ? confirmed.join(", ") : "—", hasMore };
+      : { state, text: confirmed.length ? confirmed.join(", ") : "", hasMore };
   };
 
-  const iconSummaryCell = (summary, kind) => {
+  const iconSummaryCell = (summary, kind, greenOnly) => {
     const td = document.createElement("td");
     td.className = "cell-" + summary.state;
-    if (summary.items.length === 0) {
-      td.textContent = summary.state === "na" ? "—" : "?";
+    // Platforms/Themes are noisy enough that partial (yellow) info isn't
+    // worth showing - only reveal them once fully confirmed.
+    const items = greenOnly && summary.state !== "green" ? [] : summary.items;
+    if (items.length === 0) {
+      // Red already communicates "no match" via color - no need for a
+      // placeholder "?" on top of it too.
+      td.textContent = summary.state === "na" ? "—" : "";
       return td;
     }
     const wrap = document.createElement("div");
     wrap.className = "icon-cell";
-    for (const item of summary.items) {
+    for (const item of items) {
       const info = lookupIcon(kind, item.name);
       const box = document.createElement("div");
       box.className = "icon-item hit";
@@ -686,7 +830,7 @@ function buildSummaryRow() {
   const textSummaryCell = (summary) => {
     const td = document.createElement("td");
     td.className = "cell-" + summary.state;
-    td.textContent = summary.text;
+    td.textContent = summary.text || (summary.state === "na" ? "—" : "");
     if (summary.hasMore) {
       const more = document.createElement("div");
       more.className = "summary-more";
@@ -712,43 +856,57 @@ function buildSummaryRow() {
   tr.appendChild(
     iconSummaryCell(
       listOrClue({ pick: (g) => g.platforms, target: target.platforms }, "icon", "platforms"),
-      "platform"
+      "platform",
+      true
     )
   );
   tr.appendChild(
     iconSummaryCell(
-      listOrClue({ pick: (g) => g.genres, target: target.genres }, "icon", "genres"),
+      listOrClue({ pick: (g) => genresFor(g), target: genresFor(target) }, "icon", "genres"),
       "genre"
     )
   );
   tr.appendChild(
     iconSummaryCell(
-      listOrClue({ pick: (g) => g.themes, target: target.themes }, "icon", "themes"),
-      "theme"
+      listOrClue({ pick: (g) => themesFor(g), target: themesFor(target) }, "icon", "themes"),
+      "theme",
+      true
     )
   );
 
-  // Year/ESRB already carry full directional info from a single guess, so
-  // the summary just mirrors the most recent guess rather than merging -
-  // unless the clue revealed that exact category.
-  const latest = guesses[0];
+  // Year narrows down across ALL guesses into a range, since each one
+  // tells you which side of it the target falls on; ESRB takes the best
+  // (green > yellow > red) state seen across all guesses too.
   if (cluedKey === "year") {
     tr.appendChild(scalarCell({ state: "green", text: formatCategoryValue("year"), arrow: null }));
   } else {
-    tr.appendChild(
-      latest
-        ? scalarCell(compareYear(latest.year, target.year))
-        : scalarCell({ state: "na", text: "?", arrow: null })
-    );
+    tr.appendChild(scalarCell(computeYearRangeSummary()));
   }
   if (cluedKey === "esrb") {
     tr.appendChild(scalarCell({ state: "green", text: formatCategoryValue("esrb"), arrow: null }));
   } else {
-    tr.appendChild(
-      latest
-        ? scalarCell(compareEsrb(latest.esrbRank, target.esrbRank, latest.esrb || "—"))
-        : scalarCell({ state: "na", text: "?", arrow: null })
-    );
+    // Best state seen across ALL guesses, not just the latest one - a
+    // yellow (close) guess earlier on shouldn't get buried by a later
+    // guess that happened to be way off.
+    let esrbState = "na";
+    let esrbCmp = null;
+    for (const g of guesses) {
+      const cmp = compareEsrb(g.esrbRank, target.esrbRank, g.esrb || "—");
+      if (cmp.state === "na") continue;
+      if (cmp.state === "green") {
+        esrbState = "green";
+        esrbCmp = cmp;
+        break;
+      }
+      if (cmp.state === "yellow") {
+        esrbState = "yellow";
+        esrbCmp = cmp;
+      } else if (cmp.state === "red" && esrbState !== "yellow") {
+        esrbState = "red";
+        esrbCmp = cmp;
+      }
+    }
+    tr.appendChild(scalarCell(esrbCmp || { state: "na", text: "?", arrow: null }));
   }
 
   tr.appendChild(
@@ -795,7 +953,7 @@ function buildSummaryRow() {
     }
     sagaTd.className = "cell-" + sagaState;
     sagaTd.textContent =
-      sagaState === "green" ? target.saga || target.franchise || "—" : sagaState === "na" ? "—" : "?";
+      sagaState === "green" ? target.saga || target.franchise || "—" : sagaState === "na" ? "—" : "";
   }
   tr.appendChild(sagaTd);
 
@@ -909,21 +1067,14 @@ function render(revealGuessId) {
     add(nameTd);
 
     add(iconListCell(compareList(g.platforms, target.platforms), "platform"));
-    add(iconListCell(compareList(g.genres, target.genres), "genre"));
-    add(iconListCell(compareList(g.themes, target.themes), "theme"));
+    add(iconListCell(compareList(genresFor(g), genresFor(target)), "genre"));
+    add(iconListCell(compareList(themesFor(g), themesFor(target)), "theme"));
     add(scalarCell(compareYear(g.year, target.year)));
     add(scalarCell(compareEsrb(g.esrbRank, target.esrbRank, g.esrb || "—")));
     add(iconListCell(compareList(g.modes, target.modes), "mode"));
     add(listCell(compareList(g.perspectives, target.perspectives)));
     add(listCell(compareList(g.engines, target.engines)));
-    add(
-      listCell(
-        compareList(
-          [...g.developers, ...g.publishers],
-          [...target.developers, ...target.publishers]
-        )
-      )
-    );
+    add(scalarCell(compareDevPub(g, target)));
     add(scalarCell(compareSaga(g, target)));
 
     els.table.appendChild(tr);
